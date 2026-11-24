@@ -27,6 +27,7 @@ class CurrencyTranslationEngine:
             UPDATE fact_acdocu
             SET amount_gc = amount_lc
             WHERE fiscal_period = ? 
+              AND posting_level IN ('00', '01')
               AND unit_id IN (SELECT unit_id FROM dim_unit WHERE local_curr = ?)
         """, (period, GROUP_CURR))
         print(f"✅ 本位币为 {GROUP_CURR} 的实体已直接平推集团币金额 (共更新 {self.cursor.rowcount} 条)。")
@@ -51,7 +52,7 @@ class CurrencyTranslationEngine:
                 SELECT f.id, f.fs_item, i.description, i.ct_method, f.amount_lc
                 FROM fact_acdocu f
                 JOIN dim_fs_item i ON f.fs_item = i.fs_item
-                WHERE f.fiscal_period = ? AND f.unit_id = ?
+                WHERE f.fiscal_period = ? AND f.unit_id = ? AND f.posting_level IN ('00', '01')
             """, (period, unit_id)).fetchall()
 
             print(f"\n--- 正在折算外币实体: {unit_id} ({unit_name}) | 源币种: {local_curr} ---")

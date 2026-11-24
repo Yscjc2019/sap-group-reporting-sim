@@ -2,7 +2,6 @@ import os
 import glob
 import time
 
-# 导入各阶段核心模块
 from init_db import init_database
 from generate_excels import generate_c3000_excel, generate_c4000_excel, UPLOAD_DIR
 from sprint1_data_monitor import DataMonitor
@@ -12,13 +11,15 @@ from sprint3_ic_elimination import ICEliminationEngine
 from sprint4_coi_and_report import ConsolidationOfInvestmentsEngine
 from sprint5_dynamic_expansion import DynamicExpansionManager
 from sprint8_consolidated_cashflow import ConsolidatedCashFlowEngine
+from sprint9_multi_gaap import MultiGAAPConsolidationEngine
+from sprint10_notes_disclosure import NotesDisclosureEngine
 from sprint6_balance_carryforward import BalanceCarryforwardEngine
 from sprint7_divestiture import DivestitureEngine
 
 DB_FILE = "sap_consolidation.db"
 
 def clean_workspace():
-    """第 0 步：彻底清理历史生成的数据库与 Excel 报表，确保演练环境纯净"""
+    """第 0 步：彻底清理历史运行残留文件，重置纯净沙盒环境"""
     print("="*80)
     print("🧹 [STAGE 0] 清理历史运行残留文件，重置纯净沙盒环境...")
     print("="*80)
@@ -50,11 +51,9 @@ def run_end_to_end_simulation():
     generate_c3000_excel()
     generate_c4000_excel()
     
-    # 执行 Data Monitor 采集与校验
     dm = DataMonitor(DB_FILE)
     dm.execute_all("2026.01")
     
-    # 模拟集团合并会计录入 PL 01 手工调整凭证 (C4000 期初留存现金调整)
     c4000_adj = [
         ('100100', '910', 'NONE',  200000.00),
         ('310300', '900', 'NONE', -200000.00)
@@ -83,25 +82,39 @@ def run_end_to_end_simulation():
     coi.export_consolidation_worksheet("2026.01", "Consolidated_01_2026.01_BASE.xlsx")
 
     # ==========================================================
-    # 第三幕：2026.01 主数据动态扩展 (新增联营企业 C5000 & 投资收益科目)
+    # 第三幕：2026.01 动态扩展联营企业(权益法)并生成合并现金流量表
     # ==========================================================
     print("\n" + "🎬"*25)
-    print("   第三幕：2026.01 动态追加联营企业(权益法)并生成三大合并主表")
+    print("   第三幕：2026.01 动态追加联营企业(权益法)与合并现金流量表编制")
     print("🎬"*25 + "\n")
     
     exp_mgr = DynamicExpansionManager(DB_FILE)
     exp_mgr.expand_master_data_and_transactions()
     exp_mgr.run_equity_method_consolidation("2026.01")
     
-    # 自动编制 2026.01 合并现金流量表并完成三大主表钩稽校验
     cf = ConsolidatedCashFlowEngine(DB_FILE)
     cf.generate_cash_flow_statement("2026.01")
 
     # ==========================================================
-    # 第四幕：跨年结转 (2026.01 -> 2027.01) 与期初存货未实现毛利冲回
+    # 第四幕：2026.01 多会计准则并行(CAS vs IFRS)与合并附注披露
     # ==========================================================
     print("\n" + "🎬"*25)
-    print("   第四幕：跨年度余额结转 (BCF) 与期初未实现存货毛利自动冲回")
+    print("   第四幕：2026.01 多会计准则并行(CAS vs IFRS)与合并附注自动披露")
+    print("🎬"*25 + "\n")
+
+    gaap_engine = MultiGAAPConsolidationEngine(DB_FILE)
+    gaap_engine.upgrade_schema_for_multigaap()
+    gaap_engine.generate_ifrs_delta_adjustments("2026.01")
+    gaap_engine.export_parallel_gaap_report("2026.01", "Consolidated_MultiGAAP_CAS_vs_IFRS_2026.01.xlsx")
+
+    notes_engine = NotesDisclosureEngine(DB_FILE)
+    notes_engine.export_all_notes("2026.01", "Consolidated_Notes_Disclosure_2026.01.xlsx")
+
+    # ==========================================================
+    # 第五幕：跨年结转 (2026.01 -> 2027.01) 与子公司处置出表 (C2000)
+    # ==========================================================
+    print("\n" + "🎬"*25)
+    print("   第五幕：跨年度余额结转 (BCF)、UPI 冲回与子公司处置出表")
     print("🎬"*25 + "\n")
     
     bcf = BalanceCarryforwardEngine(DB_FILE)
@@ -109,13 +122,6 @@ def run_end_to_end_simulation():
     bcf.reverse_prior_year_upi("2027.01")
     bcf.validate_and_export("2027.01")
 
-    # ==========================================================
-    # 第五幕：2027.01 子公司处置与合并范围退出 (Divestiture - C2000)
-    # ==========================================================
-    print("\n" + "🎬"*25)
-    print("   第五幕：2027.01 出售子公司 C2000、移出合并范围与重算处置损益")
-    print("🎬"*25 + "\n")
-    
     div_engine = DivestitureEngine(DB_FILE)
     div_engine.clear_existing_divestiture("2027.01")
     cost, gain = div_engine.record_parent_sale_entry("2027.01", "C2000", 1200000.00)
